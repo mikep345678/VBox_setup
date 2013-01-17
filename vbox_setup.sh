@@ -1,8 +1,23 @@
 #!/bin/bash
 
-# set global VbBox variable.
-export VBOX_USER_HOME=/Users/Shared/vbox
+# this script should reside at /usr/local/bin/vbox_setup.sh
 
+# Typical use:
+#   automated install: 'vbox_setup doitall'
+
+# For testing, 'vbox_set recreate' or call with desired individual command:
+#   create_umountwin, umountwin, fixsharedperms, makevboxfolders, fixsharedperms,
+#   linkvboxlib, fixsharedperms, vboxinstall, fixsharedperms, makewin7vbox,
+#   movemachinedef, fixsharedperms
+#  Call 'vbox_setup cleanup' to remove the shared VM
+
+###
+### !!! remember to check "installfrom" variable in vboxinstall() !!!
+###
+
+#############
+# set global VBox home folder variable.
+export VBOX_USER_HOME=/Users/Shared/vbox
 
 #############
 create_umountwin()
@@ -11,6 +26,16 @@ create_umountwin()
 #   System LaunchDaemon calls umountwin.sh on bootup to unmount Windows partition at every boot
 #    - umountwin.sh goes in /usr/local/bin
 #    - net.barabooschools.umountwin.plist goes in /Library/LaunchDaemons
+
+###
+### umountwin has been moved to it's own deployment package and is now distributed to
+###   all machines during imaging so this function only resides here for fun...
+###
+
+logger -t [vbox_setup] "$FUNCNAME starting..."
+
+if [ ! -f /usr/local/bin/umountwin.sh ]
+then
 
 echo "creating and registering umountwin.sh..."
 
@@ -37,6 +62,11 @@ EOF
 
 chown root:wheel /usr/local/bin/umountwin.sh
 chmod 755 /usr/local/bin/umountwin.sh
+
+fi
+
+if [ ! -f /Library/LaunchDaemons/net.barabooschools.umountwin.plist ]
+then
 
 # create /Library/LaunchDaemons/net.barabooschools.umountwin.plist to run umountwin.sh on system boot
 cat > /Library/LaunchDaemons/net.barabooschools.umountwin.plist <<\EOF
@@ -71,35 +101,61 @@ EOF
 
 chown root:wheel /Library/LaunchDaemons/net.barabooschools.umountwin.plist
 chmod 644 /Library/LaunchDaemons/net.barabooschools.umountwin.plist
+
+fi
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 #############
 umountwin()
 {
 # umount WINDOWS
+logger -t [vbox_setup] "$FUNCNAME starting..."
+
 /usr/local/bin/umountwin.sh
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 
 #############
 vboxinstall()
 {
+logger -t [vbox_setup] "$FUNCNAME starting..."
+
 echo "Installing VirtualBox..."
 
+vboxpkg="VirtualBox.pkg"
+extpack_name="Oracle_VM_VirtualBox_Extension_Pack-4.2.6-82870.vbox-extpack"
+
 # if packaging install, $installfrom should be "$1/Contents/Resources/"
-installfrom=/Users/tsadmin/Desktop
+if [ -f "/Users/tsadmin/Desktop/$vboxpkg" ]; then
+	installfrom=/Users/tsadmin/Desktop
+elif [ -f "$1/Contents/Resources/$vboxpkg" ]; then
+	installfrom="$1/Contents/Resources/"
+else
+	logger -t [vbox_setup] "$FUNCNAME error-- missing pkg..."
+	exit 1
+fi
+
+logger -t [vbox_setup] "$FUNCNAME installing from $installfrom/$vboxpkg..."
 
 # Install VirtualBox
-/usr/sbin/installer -pkg $installfrom/VirtualBox.pkg -target LocalSystem
+/usr/sbin/installer -dumplog -verbose -pkg "$installfrom/$vboxpkg" -target LocalSystem
 
 # Install extension pack
-/Applications/VirtualBox.app/Contents/MacOS/VBoxManage extpack install $installfrom/Oracle_VM_VirtualBox_Extension_Pack-4.2.4-81684.vbox-extpack
+/Applications/VirtualBox.app/Contents/MacOS/VBoxManage extpack install "$installfrom/$extpack_name"
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 
 #############
 makevboxfolders()
 {
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 echo "Creating vbox folders in /Users/Shared..."
 
 # create /Users/Shared/vbox
@@ -109,6 +165,8 @@ mkdir -p /Users/Shared/vbox/Library/VirtualBox
 
 chmod -R a+rXw /Users/Shared/vbox
 chown -R root:everyone /Users/Shared/vbox
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 
@@ -116,6 +174,8 @@ chown -R root:everyone /Users/Shared/vbox
 linkvboxlib()
 {
 # link all existing and future users' ~/Library/VirtualBox to /Users/Shared/vbox/Library/VirtualBox
+
+logger -t [vbox_setup] "$FUNCNAME started..."
 
 echo "linking all existing and future users ~/Library/VirtualBox to /Users/Shared/vbox/Library/VirtualBox..."
 
@@ -141,12 +201,16 @@ do
 	chown $a:everyone "/Users/$a/$sourcefolder"
     chmod u=rw,go=r "/Users/$a/$sourcefolder"
 done
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 #############
 makewin7vbox()
 {
 echo "Creating Win7vbox..."
+
+logger -t [vbox_setup] "$FUNCNAME started..."
 
 #   determine disk id of Windows partition
 winpart=$(diskutil list | grep WINDOWS | awk '{ print $NF }')
@@ -168,14 +232,19 @@ VBoxmMnage storageattach Win7 --storagectl PIIX4 --port 0 --device 0 --type dvdd
 VBoxManage setextradata global GUI/SuppressMessages
 VBoxManage setextradata global GUI/SuppressMessages remindAboutAutoCapture,confirmInputCapture,remindAboutMouseIntegrationOn,remindAboutWrongColorDepth,confirmGoingFullscreen,remindAboutMouseIntegrationOff
 
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 
 #############
 movemachinedef()
 {
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 echo "copying VirtualBox.xml..."
 cp /Users/Shared/vbox/VirtualBox.xml /Users/Shared/vbox/Library/VirtualBox/VirtualBox.xml
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 
@@ -183,16 +252,25 @@ cp /Users/Shared/vbox/VirtualBox.xml /Users/Shared/vbox/Library/VirtualBox/Virtu
 fixsharedperms()
 {
 # fix permissions to /Users/Shared folders to full access for all users. Also runs at login from net/lib/sdob-ts/lish
+
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 echo "Fixing perms on /Users/Shared..."
 
 logger -t [fixsharedperm] "Fixing perms on /Users/Shared"
 chmod -R a+rXw /Users/Shared/
 chown -R root:everyone /Users/Shared/
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 #############
 cleanup()
 {
+# remove shared VM
+
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 #ln -s -f /Users/Shared/vbox/Library/VirtualBox /Users/tsadmin/Library/VirtualBox
 #sudo ln -s -f /Users/Shared/vbox/Library/VirtualBox /System/Library/User\ Template/English.lproj/Library/VirtualBox
 
@@ -221,11 +299,15 @@ do
 	chown -R $a:everyone "/Users/$a"
 	chmod -R u=rw,go=r "/Users/$a"
 done
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 #############
 doitall()
 {
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 create_umountwin
 umountwin
 fixsharedperms
@@ -238,11 +320,15 @@ fixsharedperms
 makewin7vbox
 movemachinedef
 fixsharedperms
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
 #############
 recreate()
 {
+logger -t [vbox_setup] "$FUNCNAME started..."
+
 cleanup
 umountwin
 fixsharedperms
@@ -253,24 +339,9 @@ fixsharedperms
 makewin7vbox
 movemachinedef
 fixsharedperms
-}
 
-#############
-#create_umountwin()
-#############
-#umountwin()
-#############
-#vboxinstall()
-#############
-#makevboxfolders()
-#############
-#linkvboxlib()
-#############
-#makewin7vbox()
-#############
-#movemachinedef()
-#############
-#fixsharedperms()
+logger -t [vbox_setup] "$FUNCNAME completed..."
+}
 
 $1
 
