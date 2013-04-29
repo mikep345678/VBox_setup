@@ -8,7 +8,7 @@
 # For testing, 'vbox_set recreate' or call with desired individual command:
 #   create_umountwin, umountwin, fixsharedperms, makevboxfolders, fixsharedperms,
 #   linkvboxlib, fixsharedperms, vboxinstall, fixsharedperms, makewin7vbox,
-#   movemachinedef, fixsharedperms
+#   movemachinedef, fixsharedperms, makedockicon
 #  Call 'vbox_setup cleanup' to remove the shared VM
 
 ###
@@ -127,13 +127,23 @@ logger -t [vbox_setup] "$FUNCNAME starting..."
 echo "Installing VirtualBox..."
 
 vboxpkg="VirtualBox.pkg"
-extpack_name="Oracle_VM_VirtualBox_Extension_Pack-4.2.6-82870.vbox-extpack"
+#extpack_name="Oracle_VM_VirtualBox_Extension_Pack-4.2.6-82870.vbox-extpack"
+# instead of changing this script every time we rebuild this package after a version upgrade, hardlink current extpack:
+#   ln SoftwareDeployment/VirtualBox/Oracle_VM_VirtualBox_Extension_Pack-4.2.12-84980.vbox-extpack SoftwareDeployment/VirtualBox/vbox.vbox-extpack
+extpack_name="vbox.vbox-extpack"
 
-# if packaging install, $installfrom should be "$1/Contents/Resources/"
+
+#logger -t [vbox_setup] "$FUNCNAME looking for $1/Contents/Resources/$vboxpkg..."
+#logger -t [vbox_setup] "$FUNCNAME ls: $(ls -la $1/Contents/Resources/$vboxpkg)..."
+
+# package places installation files at /tmp/SDOB_VBox
+# -- depricated: this is not correct because this is not "postflight": if packaging install, $installfrom should be "$0/Contents/Resources/"
 if [ -f "/Users/tsadmin/Desktop/$vboxpkg" ]; then
 	installfrom=/Users/tsadmin/Desktop
 elif [ -f "$1/Contents/Resources/$vboxpkg" ]; then
-	installfrom="$1/Contents/Resources/"
+	installfrom="$1/Contents/Resources"
+elif [ -f "/tmp/SDOB_VBox/$vboxpkg" ]; then
+	installfrom="/tmp/SDOB_VBox"
 else
 	logger -t [vbox_setup] "$FUNCNAME error-- missing pkg..."
 	exit 1
@@ -146,6 +156,9 @@ logger -t [vbox_setup] "$FUNCNAME installing from $installfrom/$vboxpkg..."
 
 # Install extension pack
 /Applications/VirtualBox.app/Contents/MacOS/VBoxManage extpack install "$installfrom/$extpack_name"
+
+# Disable update checking
+VBoxManage setextradata global "GUI/UpdateDate" value="never"
 
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
@@ -222,15 +235,23 @@ winpartnum=${winpart: -1}
 
 # create Win7 virtual machine
 VBoxManage createvm --name "Win7" --register --ostype Windows7_64 --basefolder "/Users/Shared/vbox"
-VBoxManage modifyvm Win7 --memory 1024
-VBoxManage storagectl Win7 --name "SATA" --add sata --sataportcount 1 --controller IntelAHCI --bootable on
+VBoxManage modifyvm Win7 --memory 2048
 VBoxManage modifyvm Win7 --vram 27
-VBoxManage storageattach Win7 --storagectl SATA --type HDD --port 0 --device 0 --medium "/Users/Shared/vbox/drives/win7raw.vmdk"
-VBoxManage storagectl Win7 --name PIIX4 --add ide --controller PIIX4
-VBoxmMnage storageattach Win7 --storagectl PIIX4 --port 0 --device 0 --type dvddrive --medium emptydrive
+VBoxManage modifyvm Win7 --accelerate3d on
+
+VBoxManage storagectl Win7 --name "SATA" --add sata --sataportcount 1 --controller IntelAHCI --bootable on
+#VBoxManage storageattach Win7 --storagectl SATA --type HDD --port 0 --device 0 --medium "/Users/Shared/vbox/drives/win7raw.vmdk"
+#VBoxManage storagectl Win7 --name PIIX4 --add ide --controller PIIX4
+VBoxManage storagectl Win7 --name IDE --add ide --controller ICH6
+VBoxManage storageattach Win7 --storagectl IDE --port 0 --device 1 --type dvddrive --medium emptydrive
+VBoxManage storageattach Win7 --storagectl IDE --type HDD --port 0 --device 0 --medium "/Users/Shared/vbox/drives/win7raw.vmdk"
 
 VBoxManage setextradata global GUI/SuppressMessages
 VBoxManage setextradata global GUI/SuppressMessages remindAboutAutoCapture,confirmInputCapture,remindAboutMouseIntegrationOn,remindAboutWrongColorDepth,confirmGoingFullscreen,remindAboutMouseIntegrationOff
+
+VBoxManage setextradata global GUI/UpdateDate never
+
+VBoxManage snapshot Win7 take Windows7
 
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
@@ -263,6 +284,22 @@ chown -R root:everyone /Users/Shared/
 
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
+
+
+#############
+makedockicon()
+{
+# Create dock icon for all users to Window7 VM starter app
+
+logger -t [vbox_setup] "$FUNCNAME started..."
+
+/usr/local/bin/dockutil --add /Applications/Windows7.app --allhomes
+/usr/local/bin/dockutil --add /Applications/Windows7.app '/System/Library/User Template/English.lproj'
+
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
+}
+
 
 #############
 cleanup()
@@ -303,27 +340,57 @@ done
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
+
 #############
 doitall()
 {
 logger -t [vbox_setup] "$FUNCNAME started..."
 
-create_umountwin
-umountwin
-fixsharedperms
-makevboxfolders
-fixsharedperms
-linkvboxlib
-fixsharedperms
-vboxinstall
-fixsharedperms
-makewin7vbox
-movemachinedef
-fixsharedperms
+if [ -d "/Applications/VirtualBox.app" ]; then
+	# Virtualbox is already on the machine; just upgrade it!
+	logger -t [vbox_setup] "VirtualBox exists; upgrading..."
+	vboxinstall
+else
+	create_umountwin
+	umountwin
+	fixsharedperms
+	makevboxfolders
+	fixsharedperms
+	linkvboxlib
+	fixsharedperms
+	vboxinstall
+	fixsharedperms
+	makewin7vbox
+	movemachinedef
+	fixsharedperms
+	makedockicon
+fi
 
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
 
+
+#############
+reallydoitall()
+{
+logger -t [vbox_setup] "$FUNCNAME started..."
+
+	create_umountwin
+	umountwin
+	fixsharedperms
+	makevboxfolders
+	fixsharedperms
+	linkvboxlib
+	fixsharedperms
+	vboxinstall
+	fixsharedperms
+	makewin7vbox
+	movemachinedef
+	fixsharedperms
+	makedockicon
+
+logger -t [vbox_setup] "$FUNCNAME completed..."
+}
 #############
 recreate()
 {
@@ -339,6 +406,7 @@ fixsharedperms
 makewin7vbox
 movemachinedef
 fixsharedperms
+makedockicon
 
 logger -t [vbox_setup] "$FUNCNAME completed..."
 }
